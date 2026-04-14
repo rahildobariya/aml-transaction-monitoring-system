@@ -289,4 +289,5 @@ The following design choices ensure consistent results across runs:
 ## Author
 
 **Rahil Dobariya**
-Contact: rahildobariya2024@gmail.com
+
+**Contact**: rahildobariya2024@gmail.com

@@ -1,0 +1,106 @@
+data:
+  sample_size: 200000          # null = use full 6.36M rows; int = keep all fraud + this many total
+  random_seed: 42
+  test_size: 0.2
+  val_size: 0.1
+
+features:
+  numeric:
+    # --- Velocity (rolling windows) ---
+    - sender_tx_count_7d       # transaction count by sender in past 7 days
+    - sender_tx_count_24h      # transaction count by sender in past 24 hours (burst detection)
+    - sender_tx_amount_7d      # total amount sent by sender in past 7 days
+    - receiver_tx_count_7d        # inbound transaction count at receiver in past 7 days
+    - receiver_total_inflow_7d    # total amount received by receiver in past 7 days
+    - unique_receivers_7d         # distinct receivers contacted by sender in past 7 days
+    # --- Receiver network (graph-level coordination signals) ---
+    - receiver_new_sender_ratio   # fraction of receiver's 7d inbound txns from first-time senders
+    - receiver_inflow_concentration # top-1 sender share of receiver's 7d inflow (aggregation signal)
+    - shared_counterparty_risk    # avg anomaly score of co-senders to same receiver in 7d
+    # --- Amount deviation (per-sender statistics) ---
+    - amount                   # raw transaction amount
+    - amount_to_avg_ratio      # amount / sender historical mean
+    - amount_zscore            # (amount - sender_mean) / sender_std
+    - rolling_std_7d           # rolling std of sender's 7-day amount history
+    # --- AML behavioural flags ---
+    - layering_score           # weighted proxy for multi-hop layering complexity
+    - structuring_flag         # amount in [$8,500, $10,000) -- just-below-threshold
+    - round_amount_flag        # amount divisible by 100
+    - rapid_succession_flag    # >5 txns by same sender in same hour step
+    # --- Counterparty signals ---
+    - is_merchant_dest         # receiver ID starts with 'M' (point-of-sale merchant)
+    - is_new_beneficiary       # first-time transfer to this receiver (new beneficiary)
+    # --- Temporal ---
+    - tx_hour                  # hour of day (0-23 proxy from step % 24)
+    - is_weekend               # Saturday/Sunday proxy from step
+  categorical:
+    - tx_type                  # TRANSFER, CASH_OUT, PAYMENT, DEBIT, CASH_IN
+
+model:
+  algorithm: xgboost
+  params:
+    n_estimators: 500
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    scale_pos_weight: 24       # OVERRIDDEN at runtime: computed as n_neg/n_pos from training data
+    eval_metric: aucpr
+    random_state: 42
+    n_jobs: -1
+
+threshold:
+  strategy: capacity            # capacity | precision_recall
+  alert_budget_low: 500         # minimum alerts (investigator floor)
+  alert_budget_high: 800        # maximum alerts (investigator capacity ceiling)
+  target_recall: 0.70           # fallback for precision_recall strategy
+  min_precision: 0.55           # fallback for precision_recall strategy
+
+alerts:
+  # Rank-based tier cutoffs (counts, not probability thresholds)
+  # Tiers are assigned strictly by rank order of fraud_score (1 = highest risk)
+  # CRITICAL : ranks 1            ..  critical_k             -> full investigator review
+  # HIGH     : ranks critical_k+1 ..  critical_k + high_k    -> automated hold + priority review
+  # MEDIUM   : ranks above HIGH   ..  + medium_k             -> soft flag, step-up auth
+  # LOW      : all remaining rows                            -> no action
+  tier_k:
+    critical_k: 400
+    high_k: 600      # next 600 after CRITICAL  (cumulative cutoff = 1,000)
+    medium_k: 1000   # next 1000 after HIGH     (cumulative cutoff = 2,000)
+
+  # Legacy probability thresholds kept only for dashboard display colouring
+  # NOT used for any decision logic
+  display_thresholds:
+    low: 0.30
+    medium: 0.60
+    high: 0.80
+
+shap:
+  top_n_features: 3
+  reason_codes:
+    amount:                    "RC-01: Unusually large absolute transaction amount"
+    amount_zscore:             "RC-02: Amount is a statistical outlier vs sender history"
+    amount_to_avg_ratio:       "RC-03: Amount significantly exceeds sender's historical average"
+    rolling_std_7d:            "RC-04: High volatility in sender's recent transaction amounts"
+    structuring_flag:          "RC-05: Amount just below $10,000 reporting threshold (structuring)"
+    round_amount_flag:         "RC-06: Suspiciously round-number amount"
+    rapid_succession_flag:     "RC-07: Multiple rapid transactions within the same time step"
+    sender_tx_count_7d:        "RC-08: Unusually high transaction frequency in past 7 days"
+    sender_tx_count_24h:       "RC-09: High transaction burst in past 24 hours"
+    sender_tx_amount_7d:       "RC-10: Cumulative 7-day volume exceeds expected range"
+    receiver_tx_count_7d:             "RC-11: Receiver accumulating funds from multiple sources"
+    receiver_total_inflow_7d:         "RC-12: Receiver total inflow volume elevated in past 7 days"
+    receiver_new_sender_ratio:        "RC-13: High fraction of first-time senders to this receiver (mule signal)"
+    receiver_inflow_concentration:    "RC-14: One sender dominates receiver inflows (structured pass-through)"
+    shared_counterparty_risk:         "RC-15: Co-senders to same receiver show elevated risk scores"
+    unique_receivers_7d:              "RC-16: Sender contacting many distinct receivers (fan-out)"
+    is_new_beneficiary:               "RC-17: First-time transfer to this receiver (new beneficiary)"
+    tx_type:                          "RC-18: High-risk transaction type (TRANSFER or CASH_OUT)"
+    is_merchant_dest:                 "RC-19: Transfer to non-merchant account -- unusual for payment type"
+    tx_hour:                          "RC-20: Transaction at an unusual hour"
+    is_weekend:                       "RC-21: Transaction pattern inconsistent with account history"
+    layering_score:                   "RC-22: Behavioral profile consistent with multi-hop layering"
+
+mlflow:
+  experiment_name: "aml_transaction_monitoring"
+  tracking_uri: "mlruns"

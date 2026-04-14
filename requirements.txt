@@ -1,0 +1,29 @@
+# Core Data Science
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.4.2
+
+# Modeling
+xgboost==2.0.3
+imbalanced-learn==0.12.3
+
+# Explainability
+shap==0.45.1
+
+# Graph Features
+networkx>=3.3
+
+# MLOps
+mlflow>=2.14.0
+dvc==3.50.1
+
+# Dashboard
+streamlit>=1.40.0
+plotly==5.22.0
+streamlit-aggrid==0.3.4
+
+# Utilities
+setuptools>=69.0
+pyyaml==6.0.1
+joblib==1.4.2
+python-dotenv==1.0.1

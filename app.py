@@ -1,18 +1,3 @@
-"""
-AML Transaction Monitoring -- Investigator Dashboard
-=====================================================
-Three-view Streamlit application for AML analysts:
-
-  Alert Queue       Rank-ordered alerts by tier with SHAP drilldown
-  Transaction Lookup  Real-time scoring for any transaction
-  Model Performance   Tiered precision/recall metrics and charts
-
-Run:
-    streamlit run app.py
-"""
-
-from __future__ import annotations
-
 import json
 import sys
 from pathlib import Path
@@ -30,10 +15,6 @@ sys.path.insert(0, str(ROOT))
 from src.explainability.shap_explainer import AMLExplainer, load_explainer
 from src.pipeline.tiering import assign_tiers, TIER_ORDER
 
-# ---------------------------------------------------------------------------
-# Page configuration
-# ---------------------------------------------------------------------------
-
 st.set_page_config(
     page_title="AML Transaction Monitoring",
     page_icon="🔍",
@@ -41,6 +22,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# tier colours used across the whole dashboard
 st.markdown(
     """
     <style>
@@ -61,15 +43,12 @@ TIER_COLORS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Cached loaders
-# ---------------------------------------------------------------------------
-
 def _load_params() -> dict:
     with open(ROOT / "config" / "params.yaml") as f:
         return yaml.safe_load(f)
 
 
+# cache the explainer so it doesn't reload on every interaction
 @st.cache_resource(show_spinner="Loading model ...")
 def _get_explainer() -> AMLExplainer:
     return load_explainer()
@@ -91,9 +70,9 @@ def _load_test_data() -> pd.DataFrame:
     return pd.read_csv(path) if path.exists() else pd.DataFrame()
 
 
+# df_bytes is used as the cache key since streamlit can't hash DataFrames directly
 @st.cache_data(show_spinner="Scoring and ranking transactions ...", ttl=3600)
 def _score_and_rank(_artifact: dict, df_bytes: bytes) -> pd.DataFrame:
-    """Score a batch with rank-based tier assignment.  df_bytes is the cache key."""
     import io
     df = pd.read_parquet(io.BytesIO(df_bytes))
 
@@ -126,10 +105,6 @@ def _get_scored(artifact: dict, raw_df: pd.DataFrame, n: int = 2000) -> pd.DataF
     return _score_and_rank(artifact, buf.getvalue())
 
 
-# ---------------------------------------------------------------------------
-# Chart helpers
-# ---------------------------------------------------------------------------
-
 def _risk_gauge(score: float, tier: str) -> go.Figure:
     color = TIER_COLORS.get(tier, "#888")
     fig = go.Figure(go.Indicator(
@@ -139,6 +114,7 @@ def _risk_gauge(score: float, tier: str) -> go.Figure:
         gauge={
             "axis": {"range": [0, 100], "tickwidth": 1},
             "bar":  {"color": color},
+            # background segments go green -> yellow -> orange -> red
             "steps": [
                 {"range": [0, 30],   "color": "#1E3A2F"},
                 {"range": [30, 60],  "color": "#3A3010"},
@@ -163,6 +139,7 @@ def _risk_gauge(score: float, tier: str) -> go.Figure:
 
 
 def _shap_waterfall(explanation: dict, max_features: int = 10) -> go.Figure:
+    # sort by absolute SHAP value so the biggest drivers show first
     top    = sorted(explanation["shap_values"].items(),
                     key=lambda x: abs(x[1]), reverse=True)[:max_features]
     feats  = [f[0] for f in top]
@@ -192,10 +169,6 @@ def _tier_badge(tier: str) -> str:
     return f'<span style="color:{color};font-weight:bold">{tier}</span>'
 
 
-# ---------------------------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------------------------
-
 def render_sidebar() -> tuple[str, list[str]]:
     st.sidebar.title("AML Monitor")
     st.sidebar.markdown("---")
@@ -213,10 +186,6 @@ def render_sidebar() -> tuple[str, list[str]]:
     st.sidebar.caption("Rank-based tiering  |  No probability thresholds")
     return view, tiers
 
-
-# ---------------------------------------------------------------------------
-# Transaction drilldown
-# ---------------------------------------------------------------------------
 
 def _render_drilldown(row: pd.Series, explainer: AMLExplainer) -> None:
     feature_cols = [c for c in explainer.feature_names if c in row.index]
@@ -249,16 +218,9 @@ def _render_drilldown(row: pd.Series, explainer: AMLExplainer) -> None:
              "SHAP":    round(explanation["shap_values"].get(f, 0), 4)}
             for f in feature_cols
         ]
-        feat_df = (
-            pd.DataFrame(rows)
-            .sort_values("SHAP", ascending=False, key=abs)
-        )
+        feat_df = pd.DataFrame(rows).sort_values("SHAP", ascending=False, key=abs)
         st.dataframe(feat_df, use_container_width=True)
 
-
-# ---------------------------------------------------------------------------
-# View: Alert Queue
-# ---------------------------------------------------------------------------
 
 def render_alert_queue(
     raw_df: pd.DataFrame,
@@ -281,6 +243,7 @@ def render_alert_queue(
     tier_cfg = params["alerts"]["tier_k"]
     scored   = _get_scored(artifact, raw_df)
 
+    # summary counts at the top
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Scored", f"{len(scored):,}")
     c2.metric("CRITICAL", f"{(scored['alert_tier'] == 'CRITICAL').sum():,}",
@@ -305,6 +268,7 @@ def render_alert_queue(
         st.info("No alerts match the selected tiers.")
         return
 
+    # only show columns that actually exist in this batch
     display_cols = [c for c in [
         "rank", "risk_pct", "alert_tier", "amount", "tx_type",
         "structuring_flag", "is_new_beneficiary",
@@ -321,10 +285,6 @@ def render_alert_queue(
     _render_drilldown(filtered.iloc[row_idx], explainer)
 
 
-# ---------------------------------------------------------------------------
-# View: Transaction Lookup
-# ---------------------------------------------------------------------------
-
 def render_lookup(raw_df: pd.DataFrame, explainer: AMLExplainer) -> None:
     st.title("Transaction Lookup")
 
@@ -333,7 +293,8 @@ def render_lookup(raw_df: pd.DataFrame, explainer: AMLExplainer) -> None:
         return
 
     feature_cols = explainer.feature_names
-    defaults     = raw_df[[c for c in feature_cols if c in raw_df.columns]].iloc[0].to_dict()
+    # pre-fill form with first row values so it's not all zeros
+    defaults = raw_df[[c for c in feature_cols if c in raw_df.columns]].iloc[0].to_dict()
 
     with st.form("lookup"):
         cols = st.columns(3)
@@ -359,10 +320,6 @@ def render_lookup(raw_df: pd.DataFrame, explainer: AMLExplainer) -> None:
         st.plotly_chart(_shap_waterfall(explanation), use_container_width=True)
 
 
-# ---------------------------------------------------------------------------
-# View: Model Performance
-# ---------------------------------------------------------------------------
-
 def render_performance() -> None:
     st.title("Model Performance")
 
@@ -386,7 +343,6 @@ def render_performance() -> None:
     ranking = tm.get("ranking",  {})
     volume  = tm.get("volume",   {})
 
-    # KPI row
     st.subheader("Combined Action Metrics  (CRITICAL + HIGH)")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("CRITICAL+HIGH Recall",  f"{comb.get('critical_high_recall', 0):.2%}")
@@ -395,32 +351,30 @@ def render_performance() -> None:
     c4.metric("AUC-PR",                f"{ranking.get('auc_pr', 0):.4f}")
 
     c5, c6, c7, c8 = st.columns(4)
-    c5.metric("False Positives",  f"{comb.get('critical_high_fp', 0):,}")
-    c6.metric("FP Rate",          f"{comb.get('critical_high_fpr', 0):.4f}")
+    c5.metric("False Positives",    f"{comb.get('critical_high_fp', 0):,}")
+    c6.metric("FP Rate",            f"{comb.get('critical_high_fpr', 0):.4f}")
     c7.metric("Total Transactions", f"{volume.get('total_transactions', 0):,}")
     c8.metric("Total Fraud",        f"{volume.get('total_fraud', 0):,}")
 
     st.markdown("---")
-
-    # Per-tier table
     st.subheader("Per-Tier Breakdown")
+
     per_tier    = tm.get("per_tier", {})
     total_fraud = volume.get("total_fraud", 1)
 
     tier_rows = [
         {
-            "Tier":          t,
-            "Alerts":        per_tier[t]["n_alerts"],
-            "Fraud Caught":  per_tier[t]["n_fraud"],
-            "Precision":     f"{per_tier[t]['precision']:.2%}",
-            "Coverage":      f"{per_tier[t]['n_fraud'] / max(total_fraud, 1):.2%}",
+            "Tier":         t,
+            "Alerts":       per_tier[t]["n_alerts"],
+            "Fraud Caught": per_tier[t]["n_fraud"],
+            "Precision":    f"{per_tier[t]['precision']:.2%}",
+            "Coverage":     f"{per_tier[t]['n_fraud'] / max(total_fraud, 1):.2%}",
         }
         for t in TIER_ORDER if t in per_tier
     ]
     if tier_rows:
         st.dataframe(pd.DataFrame(tier_rows), use_container_width=True, hide_index=True)
 
-    # Charts
     col_p, col_c = st.columns(2)
     tiers_present = [t for t in TIER_ORDER if t in per_tier]
 
@@ -454,7 +408,7 @@ def render_performance() -> None:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # Validation row
+    # show val metrics only if the training run saved them
     if val_metrics:
         st.markdown("---")
         st.subheader("Validation Metrics (training run)")
@@ -466,10 +420,6 @@ def render_performance() -> None:
 
     st.caption("All metrics on the held-out test set. Tiers are rank-based.")
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     view, tiers = render_sidebar()

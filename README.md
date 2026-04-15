@@ -1,6 +1,6 @@
 # AML Transaction Monitoring System
 
-A production-grade Anti-Money Laundering (AML) transaction monitoring system built on XGBoost with SHAP explainability, MLflow experiment tracking, and a Streamlit investigator dashboard.
+A production-grade **Anti-Money Laundering** (AML) transaction monitoring system built on XGBoost with SHAP explainability, MLflow experiment tracking, and a Streamlit investigator dashboard.
 
 ---
 

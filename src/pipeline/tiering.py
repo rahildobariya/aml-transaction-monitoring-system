@@ -1,32 +1,3 @@
-"""
-Tiered AML Scoring Pipeline
-============================
-Converts raw XGBoost fraud probabilities into a rank-ordered, tier-based
-alert queue — the standard decision architecture used in production AML systems.
-
-Scoring flow
-------------
-    features -> XGBoost -> fraud_score (0-1) -> global rank -> tier assignment
-
-Tier assignment is strictly rank-based.  Probability thresholds are never used
-to make decisions; the tier boundaries (critical_k, high_k, medium_k) are
-business parameters configured in config/params.yaml.
-
-    CRITICAL  top critical_k ranks          full investigator review
-    HIGH      next high_k ranks             automated hold + priority queue
-    MEDIUM    next medium_k ranks           soft flag / step-up authentication
-    LOW       all remaining                 no action
-
-Public API
-----------
-    score_transactions(df, model, feature_cols)          -> np.ndarray
-    assign_tiers(df, model, feature_cols, tier_cfg)      -> pd.DataFrame
-    evaluate_tiers(df_tiered, label_col)                 -> dict
-    print_tier_report(metrics)                           -> None
-"""
-
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 from typing import Optional
@@ -40,35 +11,7 @@ sys.path.insert(0, str(ROOT))
 TIER_ORDER: list[str] = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 
 
-# ---------------------------------------------------------------------------
-# Scoring
-# ---------------------------------------------------------------------------
-
-def score_transactions(
-    df: pd.DataFrame,
-    model,
-    feature_cols: list[str],
-) -> np.ndarray:
-    """
-    Produce a fraud probability for every row in df.
-
-    Missing feature columns are filled with 0 and a warning is raised so
-    the pipeline degrades gracefully under schema drift.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Feature matrix containing at least the columns in feature_cols.
-    model : XGBClassifier
-        Trained XGBoost model extracted from the saved artifact dict.
-    feature_cols : list[str]
-        Ordered feature list used during training.
-
-    Returns
-    -------
-    np.ndarray, shape (n,)
-        Fraud probability per row in [0, 1].
-    """
+def score_transactions(df: pd.DataFrame, model, feature_cols: list[str]) -> np.ndarray:
     available = [c for c in feature_cols if c in df.columns]
     missing   = [c for c in feature_cols if c not in df.columns]
 
@@ -87,10 +30,6 @@ def score_transactions(
     return model.predict_proba(X)[:, 1]
 
 
-# ---------------------------------------------------------------------------
-# Tier assignment
-# ---------------------------------------------------------------------------
-
 def assign_tiers(
     df: pd.DataFrame,
     model,
@@ -99,43 +38,13 @@ def assign_tiers(
     *,
     label_col: Optional[str] = None,
 ) -> pd.DataFrame:
-    """
-    Score every transaction, rank globally, and assign a priority tier.
-
-    No probability threshold is used.  Every transaction receives a rank
-    (1 = highest fraud probability) and a tier determined solely by where
-    that rank falls relative to the configured bucket sizes.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Full batch to score.  May optionally include label_col.
-    model : XGBClassifier
-        Trained model (artifact["model"]).
-    feature_cols : list[str]
-        Feature columns the model expects.
-    tier_cfg : dict
-        Tier sizes from params.yaml > alerts > tier_k:
-          {"critical_k": int, "high_k": int, "medium_k": int}
-    label_col : str, optional
-        Ground-truth column to preserve in output for evaluation.
-
-    Returns
-    -------
-    pd.DataFrame
-        Input DataFrame with three new columns:
-          fraud_score  float   model P(fraud), 6 d.p.
-          rank         int     global rank in this batch (1 = highest risk)
-          tier         str     CRITICAL / HIGH / MEDIUM / LOW
-        Rows are sorted by rank ascending (CRITICAL first).
-    """
     critical_k    = int(tier_cfg["critical_k"])
     high_cutoff   = critical_k + int(tier_cfg["high_k"])
     medium_cutoff = high_cutoff + int(tier_cfg["medium_k"])
 
     fraud_scores = score_transactions(df, model, feature_cols)
 
-    # rank 1 = highest fraud_score; ties broken by original row order
+    # rank 1 = highest fraud score, ties broken by original row order
     rank = (
         pd.Series(fraud_scores, index=df.index)
         .rank(method="first", ascending=False)
@@ -143,6 +52,7 @@ def assign_tiers(
         .values
     )
 
+    # assign tier based on rank position, not probability value
     tier = np.select(
         condlist=[rank <= critical_k, rank <= high_cutoff, rank <= medium_cutoff],
         choicelist=["CRITICAL", "HIGH", "MEDIUM"],
@@ -157,41 +67,7 @@ def assign_tiers(
     return out.sort_values("rank").reset_index(drop=True)
 
 
-# ---------------------------------------------------------------------------
-# Evaluation
-# ---------------------------------------------------------------------------
-
-def evaluate_tiers(
-    df_tiered: pd.DataFrame,
-    label_col: str = "is_fraud",
-) -> dict:
-    """
-    Compute tier-stratified evaluation metrics.
-
-    Metrics produced
-    ----------------
-    per_tier
-        Precision, alert count, and fraud count for each tier.
-    combined
-        CRITICAL+HIGH recall (primary safety metric), FPR, MEDIUM recall,
-        and total recall across all actioned tiers.
-    ranking
-        AUC-ROC and AUC-PR — threshold-independent ranking quality.
-    volume
-        Batch-level totals for reporting.
-
-    Parameters
-    ----------
-    df_tiered : pd.DataFrame
-        Output of assign_tiers with label_col present.
-    label_col : str
-        Binary ground-truth column (0 = legitimate, 1 = fraud).
-
-    Returns
-    -------
-    dict
-        Nested metrics dictionary.
-    """
+def evaluate_tiers(df_tiered: pd.DataFrame, label_col: str = "is_fraud") -> dict:
     if label_col not in df_tiered.columns:
         raise ValueError(
             f"Label column '{label_col}' not found.  "
@@ -208,7 +84,6 @@ def evaluate_tiers(
     n_total     = len(y_true)
     total_legit = n_total - total_fraud
 
-    # Per-tier
     per_tier: dict[str, dict] = {}
     for t in TIER_ORDER:
         mask     = tiers == t
@@ -220,13 +95,11 @@ def evaluate_tiers(
             "precision": round(n_fraud / max(n_alerts, 1), 4),
         }
 
-    # CRITICAL + HIGH combined
     actionable  = np.isin(tiers, ["CRITICAL", "HIGH"])
     ch_n_alerts = int(actionable.sum())
     ch_n_fraud  = int(y_true[actionable].sum())
     ch_fp       = ch_n_alerts - ch_n_fraud
 
-    # MEDIUM
     med_mask    = tiers == "MEDIUM"
     med_n_fraud = int(y_true[med_mask].sum())
 
@@ -256,12 +129,7 @@ def evaluate_tiers(
     }
 
 
-# ---------------------------------------------------------------------------
-# Console report
-# ---------------------------------------------------------------------------
-
 def print_tier_report(metrics: dict) -> None:
-    """Print a structured tier evaluation report to stdout."""
     vol      = metrics["volume"]
     comb     = metrics["combined"]
     ranking  = metrics["ranking"]

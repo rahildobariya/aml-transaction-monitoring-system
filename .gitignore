@@ -16,7 +16,7 @@ data/raw/
 data/processed/
 
 # Models
-models/*.pkl
+# models/*.pkl  ← committed for Streamlit Cloud demo (0.9 MB)
 models/*.joblib
 
 # MLflow

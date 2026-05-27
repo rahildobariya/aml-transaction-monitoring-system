@@ -67,7 +67,12 @@ def _get_artifact() -> dict:
 @st.cache_data(show_spinner="Loading test data ...")
 def _load_test_data() -> pd.DataFrame:
     path = ROOT / "data" / "processed" / "test.csv"
-    return pd.read_csv(path) if path.exists() else pd.DataFrame()
+    if path.exists():
+        return pd.read_csv(path)
+    demo_path = ROOT / "demo" / "sample_data.csv"
+    if demo_path.exists():
+        return pd.read_csv(demo_path)
+    return pd.DataFrame()
 
 
 # df_bytes is used as the cache key since streamlit can't hash DataFrames directly
@@ -229,6 +234,15 @@ def render_alert_queue(
     tiers: list[str],
 ) -> None:
     st.title("Alert Queue")
+
+    # show demo banner when running on Streamlit Cloud with sample data
+    full_path = ROOT / "data" / "processed" / "test.csv"
+    demo_path = ROOT / "demo" / "sample_data.csv"
+    if not full_path.exists() and demo_path.exists():
+        st.info(
+            "ℹ️ **Demo mode** — showing a 2,000-row sample of the synthetic dataset. "
+            "Clone the repo and run the full pipeline for all 40,000 transactions."
+        )
 
     if raw_df.empty:
         st.warning(

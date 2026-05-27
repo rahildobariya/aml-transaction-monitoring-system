@@ -2,7 +2,6 @@
 
 An end-to-end machine learning pipeline that scores financial transactions for fraud risk, assigns priority alert tiers, and routes high-risk alerts through an automation workflow. Built as a hands-on applied AI project using a large synthetic transaction dataset.
 
-[![Open in Streamlit](https://img.shields.io/badge/Open%20in-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://aml-fraud-dashboard.streamlit.app)
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python)
 ![XGBoost](https://img.shields.io/badge/Model-XGBoost-orange)
 ![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-red?logo=streamlit)

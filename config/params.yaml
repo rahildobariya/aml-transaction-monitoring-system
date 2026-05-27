@@ -104,3 +104,9 @@ shap:
 mlflow:
   experiment_name: "aml_transaction_monitoring"
   tracking_uri: "mlruns"
+
+n8n:
+  enabled: true
+  # Production webhook URL (n8n running via Docker on localhost:5678)
+  # Use http://localhost:5678/webhook-test/aml-alerts during workflow development
+  webhook_url: "http://localhost:5678/webhook/aml-alerts"

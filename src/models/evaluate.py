@@ -15,6 +15,7 @@ from src.pipeline.tiering import (
     evaluate_tiers,
     print_tier_report,
 )
+from src.pipeline.webhook import route_alerts
 
 
 def _load_params() -> dict:
@@ -95,6 +96,13 @@ def evaluate() -> dict:
 
     metrics = evaluate_tiers(df_tiered, label_col="is_fraud")
     print_tier_report(metrics)
+
+    n8n_cfg = params.get("n8n", {})
+    if n8n_cfg.get("enabled", False):
+        webhook_url = n8n_cfg["webhook_url"]
+        print(f"[evaluate] Routing CRITICAL/HIGH alerts → n8n ({webhook_url}) ...")
+        n_routed = route_alerts(df_tiered, webhook_url)
+        print(f"[evaluate] {n_routed} alerts dispatched to n8n.")
 
     reports_dir  = ROOT / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,9 @@
+{
+  "files.exclude": {
+    "venv/": true,
+    "mlruns/": true,
+    "**/__pycache__/": true,
+    "**/*.pyc": true,
+    "**/*.pyo": true
+  }
+}

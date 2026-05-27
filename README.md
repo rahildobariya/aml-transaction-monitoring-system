@@ -360,4 +360,4 @@ This is a student project and prototype — not a production banking system.
 
 **Rahil Dobariya**  
 Applied AI student  
-📧 dobariyarahil111@gmail.com
+📧 rahildobariya2024@gmail.com

@@ -339,12 +339,25 @@ def render_performance() -> None:
 
     metrics_path     = ROOT / "reports" / "test_metrics.json"
     val_metrics_path = ROOT / "reports" / "val_metrics.json"
+    demo_metrics_path = ROOT / "demo" / "metrics.json"
 
+    is_demo = False
     if not metrics_path.exists():
-        st.warning(
-            "No metrics found. Run:\n\n```bash\npython src/models/evaluate.py\n```"
+        if demo_metrics_path.exists():
+            metrics_path = demo_metrics_path
+            is_demo = True
+        else:
+            st.warning(
+                "No metrics found. Run:\n\n```bash\npython src/models/evaluate.py\n```"
+            )
+            return
+
+    if is_demo:
+        st.info(
+            "ℹ️ **Demo mode** — metrics from the full 40,000-transaction evaluation run "
+            "(200,000-row training sample, AUC-ROC 0.9562). "
+            "Clone the repo and run `python src/models/evaluate.py` to regenerate."
         )
-        return
 
     with open(metrics_path) as f:
         tm = json.load(f)

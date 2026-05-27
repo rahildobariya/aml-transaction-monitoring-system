@@ -1,0 +1,22 @@
+{
+  "combined": {
+    "critical_high_recall": 0.5143,
+    "total_recall": 0.5143,
+    "critical_high_fp": 155,
+    "critical_high_fpr": 0.0040
+  },
+  "ranking": {
+    "auc_roc": 0.9562,
+    "auc_pr": 0.7132
+  },
+  "volume": {
+    "total_transactions": 40000,
+    "total_fraud": 1643
+  },
+  "per_tier": {
+    "CRITICAL": {"n_alerts": 400,   "n_fraud": 398, "precision": 0.9950},
+    "HIGH":     {"n_alerts": 600,   "n_fraud": 447, "precision": 0.7450},
+    "MEDIUM":   {"n_alerts": 1000,  "n_fraud": 266, "precision": 0.2660},
+    "LOW":      {"n_alerts": 38000, "n_fraud": 532, "precision": 0.0140}
+  }
+}
